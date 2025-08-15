@@ -1,14 +1,16 @@
 // routes/chat.routes.js
 import { Router } from "express";
-import { getHistory, getInbox, markRead } from "../controllers/chat.controller.js";
+import { getHistory, getInbox, markRead, sharePost } from "../controllers/chat.controller.js";
 
 // If you already have an auth middleware, plug it in here:
-import requireAuth from "../middleware/requireAuth.js"; // <-- adapt path/name
+import isAuth from "../middlewares/isAuth.js";
 
 const router = Router();
 
-router.get("/history/:withUser", requireAuth, getHistory);
-router.get("/inbox", requireAuth, getInbox);
-router.patch("/read/:withUser", requireAuth, markRead);
+
+router.post("/share-post", isAuth, sharePost);
+router.get("/history/:withUser", isAuth, getHistory);
+router.get("/inbox", isAuth, getInbox);
+router.patch("/read/:withUser", isAuth, markRead);
 
 export default router;

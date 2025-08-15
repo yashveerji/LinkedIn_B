@@ -5,7 +5,8 @@ const messageSchema = new mongoose.Schema(
   {
     from: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     to:   { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-    text: { type: String, required: true, trim: true },
+  text: { type: String, required: true, trim: true },
+  post: { type: mongoose.Schema.Types.ObjectId, ref: "Post", default: null },
     deliveredAt: { type: Date, default: null },
     readAt:      { type: Date, default: null }
   },

@@ -5,13 +5,24 @@ import User from "../models/user.model.js";
 export const getCurrentUser = async (req, res) => {
   try {
     const id = req.userId; // Comes from isAuth middleware
-    const user = await User.findById(id).select("-password");
+    // Populate connections with basic info
+    const user = await User.findById(id)
+      .select("-password")
+      .populate({
+        path: 'connection',
+        select: 'firstName lastName userName profileImage headline',
+      });
 
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    return res.status(200).json(user);
+    // For frontend compatibility, return as 'connections' array
+    const userObj = user.toObject();
+    userObj.connections = userObj.connection || [];
+    delete userObj.connection;
+
+    return res.status(200).json(userObj);
   } catch (error) {
     console.error("getCurrentUser error:", error);
     return res.status(500).json({ message: "Server error" });

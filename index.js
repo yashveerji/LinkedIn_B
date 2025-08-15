@@ -9,8 +9,12 @@ import postRouter from "./routes/post.routes.js";
 import connectionRouter from "./routes/connection.routes.js";
 import http from "http";
 import { Server } from "socket.io";
+
+import chatRoutes from "./routes/chat.routes.js";
 import notificationRouter from "./routes/notification.routes.js";
 import aiRoutes from "./routes/ai.routes.js";
+
+import Message from "./models/Message.js";
 import jobRoutes from "./routes/job.routes.js";
 
 dotenv.config();
@@ -41,6 +45,8 @@ app.use("/api/auth", authRouter);
 app.use("/api/user", userRouter);
 app.use("/api/post", postRouter);
 app.use("/api/connection", connectionRouter);
+
+app.use("/api/chat", chatRoutes);
 app.use("/api/notification", notificationRouter);
 app.use("/api/jobs", jobRoutes);
 app.use("/api/ai", aiRoutes);
@@ -56,7 +62,14 @@ io.on("connection", (socket) => {
     console.log(`User registered: ${userId} -> ${socket.id}`);
   });
 
-  socket.on("send_message", ({ senderId, receiverId, text }) => {
+
+  socket.on("send_message", async ({ senderId, receiverId, text }) => {
+    try {
+      // Save to DB
+      await Message.create({ from: senderId, to: receiverId, text });
+    } catch (err) {
+      console.error("Failed to save message:", err);
+    }
     const receiverSocketId = userSocketMap.get(receiverId);
     if (receiverSocketId) {
       io.to(receiverSocketId).emit("receive_message", {

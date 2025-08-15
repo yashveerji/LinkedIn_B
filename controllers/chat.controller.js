@@ -1,3 +1,26 @@
+/**
+ * POST /api/chat/share-post
+ * Body: { to: userId, postId }
+ * Sends a message with a post reference to a connection
+ */
+import Post from "../models/post.model.js";
+export const sharePost = async (req, res) => {
+  try {
+    const from = req.user?._id || req.userId;
+    const { to, postId } = req.body;
+    if (!to || !postId) return res.status(400).json({ message: "Missing recipient or postId" });
+    const post = await Post.findById(postId);
+    if (!post) return res.status(404).json({ message: "Post not found" });
+    // Compose a message with a post reference (could be a special text or a type field)
+    const text = `Shared a post with you: ${post.description?.slice(0, 100) || "[No description]"}`;
+    const message = await Message.create({ from, to, text, post: postId });
+    // Optionally emit via socket.io here
+    res.status(201).json({ message: "Post shared in chat", chatMessage: message });
+  } catch (err) {
+    console.error("sharePost error:", err);
+    res.status(500).json({ message: "Failed to share post in chat" });
+  }
+};
 // controllers/chat.controller.js
 import Message from "../models/Message.js";
 
