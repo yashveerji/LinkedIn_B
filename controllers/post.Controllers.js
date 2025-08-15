@@ -1,3 +1,22 @@
+// Repost a post (clone for current user)
+export const repost = async (req, res) => {
+    try {
+        const postId = req.params.id;
+        const userId = req.userId;
+        const originalPost = await Post.findById(postId);
+        if (!originalPost) return res.status(404).json({ message: "Original post not found" });
+        // Create a new post with the same content and image, but new author, and track original author
+        const newPost = await Post.create({
+            author: userId,
+            repostedFrom: originalPost.author,
+            description: originalPost.description,
+            image: originalPost.image || undefined
+        });
+        return res.status(201).json({ message: "Reposted successfully", post: newPost });
+    } catch (error) {
+        return res.status(500).json({ message: `repost error ${error}` });
+    }
+};
 // Delete a post (only by author)
 export const deletePost = async (req, res) => {
     try {

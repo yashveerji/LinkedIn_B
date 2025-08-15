@@ -6,6 +6,12 @@ author:{
    ref:"User",
    required:true
 },
+// If this is a repost, store the original author
+repostedFrom: {
+   type: mongoose.Schema.Types.ObjectId,
+   ref: "User",
+   default: null
+},
 description:{
     type:String,
     default:""

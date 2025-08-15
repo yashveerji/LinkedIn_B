@@ -1,8 +1,11 @@
+
 import express from "express"
 import isAuth from "../middlewares/isAuth.js"
 import upload from "../middlewares/multer.js"
-import { comment, createPost, getPost, like, deletePost, deleteComment } from "../controllers/post.Controllers.js"
+import { comment, createPost, getPost, like, deletePost, deleteComment, repost } from "../controllers/post.Controllers.js"
+
 const postRouter=express.Router()
+postRouter.post("/repost/:id", isAuth, repost);
 
 
 postRouter.post("/create",isAuth,upload.single("image"),createPost)
