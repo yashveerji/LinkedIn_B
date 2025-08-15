@@ -1,6 +1,8 @@
+
 import genToken from "../config/token.js";
 import User from "../models/user.model.js";
 import bcrypt from "bcryptjs";
+import { sendOtpMail } from "../service/mail.service.js";
 
 export const signUp = async (req, res) => {
   try {
@@ -22,28 +24,57 @@ export const signUp = async (req, res) => {
 
     let hashedPassword = await bcrypt.hash(password, 10);
 
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
     const user = await User.create({
       firstName,
       lastName,
       userName,
       email,
-      password: hashedPassword
+      password: hashedPassword,
+      otp,
+      otpExpiry
     });
 
-    let token = await genToken(user._id);
+    // Send OTP email
+    await sendOtpMail(email, otp);
 
+    // Do not log in user yet, require OTP verification
+    return res.status(201).json({ message: "OTP sent to email. Please verify.", userId: user._id });
+
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({ message: "Signup error" });
+  }
+};
+// OTP verification endpoint
+export const verifyOtp = async (req, res) => {
+  try {
+    const { userId, otp } = req.body;
+    const user = await User.findById(userId);
+    if (!user) return res.status(400).json({ message: "User not found" });
+    if (!user.otp || !user.otpExpiry) return res.status(400).json({ message: "No OTP set for this user" });
+    if (user.otp !== otp) return res.status(400).json({ message: "Invalid OTP" });
+    if (user.otpExpiry < new Date()) return res.status(400).json({ message: "OTP expired" });
+
+    // OTP valid, clear OTP fields and log in user
+    user.otp = undefined;
+    user.otpExpiry = undefined;
+    await user.save();
+
+    let token = await genToken(user._id);
     res.cookie("token", token, {
       httpOnly: true,
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       secure: process.env.NODE_ENV === "production"
     });
-
-    return res.status(201).json(user);
-
+    return res.status(200).json(user);
   } catch (error) {
     console.log(error);
-    return res.status(500).json({ message: "Signup error" });
+    return res.status(500).json({ message: "OTP verification error" });
   }
 };
 

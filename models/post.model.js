@@ -13,11 +13,18 @@ description:{
 image:{
     type:String
 },
-like:[
-   {
-    type: mongoose.Schema.Types.ObjectId,
-    ref:"User"
-}
+reactions:[
+    {
+        user: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User"
+        },
+        type: {
+            type: String,
+            enum: ["like", "love", "wow", "sad", "angry"],
+            default: "like"
+        }
+    }
 ],
 comment:[
     {
