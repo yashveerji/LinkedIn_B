@@ -27,7 +27,7 @@ const corsOptions = {
   origin: [
     "http://localhost:5173",                 // Local
     "https://g5team.netlify.app",            // Netlify
-    "https://linkedin-f-8z9y.onrender.com"   // Render
+    "https://linkedin-host.onrender.com"   // Render
   ],
   credentials: true
 };
