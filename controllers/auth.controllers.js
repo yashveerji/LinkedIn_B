@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import { sendOtpMail } from "../service/mail.service.js";
 
 export const signUp = async (req, res) => {
+  let user = null;
   try {
     const { firstName, lastName, userName, email, password } = req.body;
 
@@ -28,7 +29,7 @@ export const signUp = async (req, res) => {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-    const user = await User.create({
+    user = await User.create({
       firstName,
       lastName,
       userName,
@@ -39,12 +40,21 @@ export const signUp = async (req, res) => {
     });
 
     // Send OTP email
-    await sendOtpMail(email, otp);
+    try {
+      await sendOtpMail(email, otp);
+    } catch (mailErr) {
+      // If sending OTP fails, delete user
+      await User.findByIdAndDelete(user._id);
+      return res.status(500).json({ message: "Failed to send OTP email. Please try again." });
+    }
 
     // Do not log in user yet, require OTP verification
     return res.status(201).json({ message: "OTP sent to email. Please verify.", userId: user._id });
 
   } catch (error) {
+    if (user && user._id) {
+      await User.findByIdAndDelete(user._id);
+    }
     console.log(error);
     return res.status(500).json({ message: "Signup error" });
   }
