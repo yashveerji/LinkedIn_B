@@ -25,9 +25,13 @@ const userSchema=new mongoose.Schema({
     },
     otp: {
         type: String,
+        select: false,
+        default: undefined,
     },
     otpExpiry: {
         type: Date,
+        select: false,
+        default: undefined,
     },
     profileImage:{
         type:String,
@@ -63,6 +67,12 @@ const userSchema=new mongoose.Schema({
             title:{type:String},
             company:{type:String},
             description:{type:String}
+        }
+    ],
+    savedPosts:[
+        {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Post"
         }
     ],
     connection:[
