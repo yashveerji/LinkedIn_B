@@ -5,20 +5,6 @@ import bcrypt from "bcryptjs";
 import { sendOtpMail } from "../service/mail.service.js";
 
 const isProd = (process.env.NODE_ENV === "production" || process.env.NODE_ENVIRONMENT === "production");
-// Allow overriding cookie policy via env for cross-site deployments
-const sameSiteCfg = (process.env.COOKIE_SAMESITE || (isProd ? "none" : "lax"));
-const secureCfg = (process.env.COOKIE_SECURE ? process.env.COOKIE_SECURE === "true" : isProd);
-const domainCfg = process.env.COOKIE_DOMAIN || undefined; // e.g. .yourdomain.com
-const partitionedCfg = process.env.COOKIE_PARTITIONED === "true"; // Chrome CHIPS
-const baseCookieOpts = {
-  httpOnly: true,
-  maxAge: 7 * 24 * 60 * 60 * 1000,
-  sameSite: sameSiteCfg,
-  secure: secureCfg,
-  domain: domainCfg,
-  // Express/cookie lib may ignore if unsupported; safe to include
-  partitioned: partitionedCfg
-};
 
 export const signUp = async (req, res) => {
   let createdUser = null;
@@ -82,8 +68,13 @@ export const verifyOtp = async (req, res) => {
     user.otpExpiry = undefined;
     await user.save();
 
-  const token = await genToken(user._id);
-  res.cookie("token", token, baseCookieOpts);
+    const token = await genToken(user._id);
+    res.cookie("token", token, {
+      httpOnly: true,
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      sameSite: isProd ? "none" : "lax",
+      secure: isProd,
+    });
     return res.status(200).json(user);
   } catch (error) {
     console.log(error);
@@ -137,7 +128,12 @@ export const login = async (req, res) => {
 
     let token = await genToken(user._id);
 
-  res.cookie("token", token, baseCookieOpts);
+    res.cookie("token", token, {
+      httpOnly: true,
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      sameSite: isProd ? "none" : "lax",
+      secure: isProd
+    });
 
     return res.status(200).json(user);
 
@@ -149,7 +145,10 @@ export const login = async (req, res) => {
 
 export const logOut = async (req, res) => {
   try {
-  res.clearCookie("token", { sameSite: sameSiteCfg, secure: secureCfg, domain: domainCfg, partitioned: partitionedCfg });
+    res.clearCookie("token", {
+      sameSite: isProd ? "none" : "lax",
+      secure: isProd
+    });
     return res.status(200).json({ message: "Log out successfully" });
   } catch (error) {
     console.log(error);
