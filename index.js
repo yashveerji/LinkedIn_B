@@ -23,13 +23,20 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
-// Common CORS options (updated URLs)
+// Common CORS options (read from env or fallback list)
+const allowedOrigins = (process.env.CORS_ORIGINS || "")
+  .split(",")
+  .map(s => s.trim())
+  .filter(Boolean);
+
+const defaultOrigins = [
+  "http://localhost:5173",                 // Local
+  "https://g5team.netlify.app",            // Netlify (if used)
+  "https://linkedin-f-8z9y.onrender.com"   // Render (example)
+];
+
 const corsOptions = {
-  origin: [
-    "http://localhost:5173",                 // Local
-    "https://g5team.netlify.app",            // Netlify
-    "https://linkedin-f-8z9y.onrender.com"   // Render
-  ],
+  origin: allowedOrigins.length ? allowedOrigins : defaultOrigins,
   credentials: true
 };
 
