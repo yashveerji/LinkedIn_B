@@ -73,7 +73,9 @@ export const verifyOtp = async (req, res) => {
       httpOnly: true,
       maxAge: 7 * 24 * 60 * 60 * 1000,
       sameSite: isProd ? "none" : "lax",
-      secure: isProd,
+  secure: isProd,
+  // Allow cookie in third-party context but partitioned per top-level site (Chrome 3PC deprecation)
+  partitioned: isProd,
     });
     return res.status(200).json(user);
   } catch (error) {
@@ -132,7 +134,8 @@ export const login = async (req, res) => {
       httpOnly: true,
       maxAge: 7 * 24 * 60 * 60 * 1000,
       sameSite: isProd ? "none" : "lax",
-      secure: isProd
+  secure: isProd,
+  partitioned: isProd
     });
 
     return res.status(200).json(user);
@@ -147,7 +150,8 @@ export const logOut = async (req, res) => {
   try {
     res.clearCookie("token", {
       sameSite: isProd ? "none" : "lax",
-      secure: isProd
+  secure: isProd,
+  partitioned: isProd
     });
     return res.status(200).json({ message: "Log out successfully" });
   } catch (error) {
