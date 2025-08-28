@@ -151,17 +151,21 @@ export const deleteComment = async (req, res) => {
     try {
         const { postId, commentId } = req.params;
         const userId = req.userId;
-        const post = await Post.findById(postId);
+        // First fetch post author to allow owners to moderate
+        const post = await Post.findById(postId).select("author comment._id comment.user");
         if (!post) return res.status(404).json({ message: "Post not found" });
-        const comment = post.comment.id(commentId);
+        const isOwner = post.author?.toString?.() === userId;
+        const comment = post.comment?.id?.(commentId) || post.comment?.find?.(c => c._id?.toString?.() === commentId);
         if (!comment) return res.status(404).json({ message: "Comment not found" });
-        if (comment.user.toString() !== userId) return res.status(403).json({ message: "Not authorized" });
-        comment.remove();
-        await post.save();
+        if (!isOwner && comment.user?.toString?.() !== userId) {
+            return res.status(403).json({ message: "Not authorized" });
+        }
+        await Post.updateOne({ _id: postId }, { $pull: { comment: { _id: commentId } } });
         io.emit("commentDeleted", { postId, commentId });
         return res.status(200).json({ message: "Comment deleted", commentId });
     } catch (error) {
-        return res.status(500).json({ message: `delete comment error ${error}` });
+        console.error("deleteComment error", error);
+        return res.status(500).json({ message: "delete comment error" });
     }
 };
 
