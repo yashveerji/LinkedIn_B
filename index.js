@@ -47,6 +47,13 @@ export const io = new Server(server, { cors: corsOptions });
 app.use(express.json());
 app.use(cookieParser());
 app.use(cors(corsOptions));
+// Disable caching for API responses to avoid stale user/session data in some browsers/proxies
+app.use((req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
 
 // API routes
 app.use("/api/auth", authRouter);

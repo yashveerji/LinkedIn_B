@@ -4,11 +4,14 @@ dotenv.config();
 
 const isAuth = async (req, res, next) => {
   try {
-    let token = req.cookies?.token;
-
-    // If not in cookies, check Authorization header
-    if (!token && req.headers.authorization?.startsWith("Bearer ")) {
+    let token = undefined;
+    // Prefer Authorization header if present
+    if (req.headers.authorization?.startsWith("Bearer ")) {
       token = req.headers.authorization.split(" ")[1];
+    }
+    // Fallback to cookie token
+    if (!token) {
+      token = req.cookies?.token;
     }
 
     if (!token) {

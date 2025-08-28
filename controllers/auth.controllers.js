@@ -69,11 +69,15 @@ export const verifyOtp = async (req, res) => {
     await user.save();
 
     const token = await genToken(user._id);
+  // Proactively clear any previous cookie variants (partitioned and non-partitioned)
+  try { res.clearCookie("token", { path: "/", sameSite: isProd ? "none" : "lax", secure: isProd, partitioned: true }); } catch {}
+  try { res.clearCookie("token", { path: "/", sameSite: isProd ? "none" : "lax", secure: isProd }); } catch {}
     res.cookie("token", token, {
       httpOnly: true,
       maxAge: 7 * 24 * 60 * 60 * 1000,
       sameSite: isProd ? "none" : "lax",
   secure: isProd,
+      path: "/",
   // Allow cookie in third-party context but partitioned per top-level site (Chrome 3PC deprecation)
   partitioned: isProd,
     });
@@ -130,11 +134,15 @@ export const login = async (req, res) => {
 
     let token = await genToken(user._id);
 
+  // Proactively clear any previous cookie variants (partitioned and non-partitioned)
+  try { res.clearCookie("token", { path: "/", sameSite: isProd ? "none" : "lax", secure: isProd, partitioned: true }); } catch {}
+  try { res.clearCookie("token", { path: "/", sameSite: isProd ? "none" : "lax", secure: isProd }); } catch {}
     res.cookie("token", token, {
       httpOnly: true,
       maxAge: 7 * 24 * 60 * 60 * 1000,
       sameSite: isProd ? "none" : "lax",
-  secure: isProd,
+      secure: isProd,
+      path: "/",
   partitioned: isProd
     });
 
@@ -148,11 +156,14 @@ export const login = async (req, res) => {
 
 export const logOut = async (req, res) => {
   try {
-    res.clearCookie("token", {
+  // Clear both partitioned and non-partitioned variants
+  res.clearCookie("token", {
       sameSite: isProd ? "none" : "lax",
-  secure: isProd,
+      secure: isProd,
+      path: "/",
   partitioned: isProd
     });
+  try { res.clearCookie("token", { sameSite: isProd ? "none" : "lax", secure: isProd, path: "/" }); } catch {}
     return res.status(200).json({ message: "Log out successfully" });
   } catch (error) {
     console.log(error);
