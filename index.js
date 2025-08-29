@@ -23,25 +23,27 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
-// Common CORS options (read from env or fallback list)
-const allowedOrigins = (process.env.CORS_ORIGINS || "")
+// CORS origins come from .env (CORS_ORIGINS). No hardcoded production URLs.
+const envOrigins = (process.env.CORS_ORIGINS || "")
   .split(",")
-  .map(s => s.trim())
+  .map((s) => s.trim())
   .filter(Boolean);
 
-const defaultOrigins = [
-  "http://localhost:5173",                 // Local
-  "https://g5team.netlify.app",            // Netlify (if used)
-  "https://linkedin-f-8z9y.onrender.com"   // Render (example)
-];
+const isDev = (process.env.NODE_ENV === "development" || process.env.NODE_ENVIRONMENT === "development");
+// In dev, fall back to localhost only; in prod, require CORS_ORIGINS to be set.
+const corsOrigins = envOrigins.length ? envOrigins : (isDev ? ["http://localhost:5173"] : []);
+
+if (!envOrigins.length && !isDev) {
+  console.warn("[CORS] No CORS_ORIGINS set in env; cross-origin requests will be blocked. Set CORS_ORIGINS in .env.");
+}
 
 const corsOptions = {
-  origin: allowedOrigins.length ? allowedOrigins : defaultOrigins,
-  credentials: true
+  origin: corsOrigins,
+  credentials: true,
 };
 
 // Socket.IO server with same CORS config
-export const io = new Server(server, { cors: corsOptions });
+export const io = new Server(server, { cors: { origin: corsOrigins, credentials: true } });
 
 // Middlewares
 app.use(express.json());
