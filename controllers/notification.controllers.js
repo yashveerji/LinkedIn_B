@@ -4,7 +4,8 @@ export const getNotifications=async (req,res)=>{
     try {
         
     let notification=await Notification.find({receiver:req.userId})
-    .populate("relatedUser","firstName lastName profileImage")
+    .sort({ createdAt: -1 })
+    .populate("relatedUser","firstName lastName profileImage userName")
     .populate("relatedPost","image description")
     return res.status(200).json(notification)
     } catch (error) {
