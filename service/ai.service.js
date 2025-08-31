@@ -34,8 +34,27 @@ Default Greeting Example:
     `
 });
 
+// Backward-compatible single-turn generation
 export default async function generateContent(prompt) {
     const result = await model.generateContent(prompt);
-    console.log(result.response.text());
     return result.response.text();
+}
+
+// Multi-turn chat with history (stateless: history is provided by caller)
+export async function generateChatReply(messages = []) {
+    try {
+        // Expect messages as array of { from: 'user'|'ai', text: string }
+        const list = Array.isArray(messages) ? messages.filter(m => m && m.text) : [];
+        if (!list.length) throw new Error('No messages');
+        const last = list[list.length - 1];
+        const history = list.slice(0, -1).map((m) => ({
+            role: m.from === 'ai' ? 'model' : 'user',
+            parts: [{ text: String(m.text || '') }],
+        }));
+        const chat = model.startChat({ history });
+        const result = await chat.sendMessage(String(last.text || ''));
+        return result.response.text();
+    } catch (e) {
+        return 'Sorry, I could not process that right now.';
+    }
 }
