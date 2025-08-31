@@ -23,6 +23,8 @@ dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
+// Trust reverse proxies (Render/Netlify/etc.) so cookies & protocol are determined correctly
+app.set('trust proxy', 1);
 
 // CORS origins come from .env (CORS_ORIGINS). No hardcoded production URLs.
 const envOrigins = (process.env.CORS_ORIGINS || "")
@@ -43,8 +45,13 @@ const corsOptions = {
   credentials: true,
 };
 
-// Socket.IO server with same CORS config
-export const io = new Server(server, { cors: { origin: corsOrigins, credentials: true } });
+// Socket.IO server with same CORS config and resilient transport/timeouts for hosts behind proxies/LB
+export const io = new Server(server, {
+  cors: { origin: corsOrigins, credentials: true },
+  transports: ["websocket", "polling"],
+  pingInterval: 25000,
+  pingTimeout: 60000,
+});
 
 // Middlewares
 app.use(express.json());
@@ -71,11 +78,20 @@ app.use("/api/ai", aiRoutes);
 app.use("/api/rtc", rtcRoutes);
 app.use("/api/testmail", testmailRoutes);
 
+// Simple health check
+app.get(["/", "/health", "/api/health"], (req, res) => {
+  res.json({ ok: true, time: new Date().toISOString() });
+});
+
 // Map to store connected users: userId -> socketId
 export const userSocketMap = new Map();
 
 io.on("connection", (socket) => {
-  console.log("New user connected:", socket.id);
+  console.log("New user connected:", socket.id, "transport=", socket.conn?.transport?.name);
+  // Observe transport upgrades (polling -> websocket)
+  socket.conn?.on?.("upgrade", () => {
+    console.log("Socket upgraded:", socket.id, "transport=", socket.conn?.transport?.name);
+  });
 
   socket.on("register", (userId) => {
     userSocketMap.set(userId, socket.id);
