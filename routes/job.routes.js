@@ -1,4 +1,3 @@
-
 import express from "express";
 import Job from "../models/job.js";
 import isAuth from "../middlewares/isAuth.js";
@@ -36,8 +35,6 @@ router.get("/", async (req, res) => {
   }
 });
 
-export default router;
-
 // Edit Job (only by creator)
 router.put("/edit/:id", isAuth, async (req, res) => {
   try {
@@ -60,3 +57,23 @@ router.put("/edit/:id", isAuth, async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+
+// Delete Job (only by creator)
+router.delete("/delete/:id", isAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const job = await Job.findById(id);
+    if (!job) {
+      return res.status(404).json({ message: "Job not found" });
+    }
+    if (job.createdBy.toString() !== req.userId) {
+      return res.status(403).json({ message: "Not authorized to delete this job" });
+    }
+    await job.deleteOne();
+    res.json({ message: "Job deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+export default router;
