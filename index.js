@@ -189,6 +189,26 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Support renegotiation/ICE restart
+  socket.on("renegotiate_offer", ({ to, from, offer }) => {
+    try {
+      const peerSocketId = userSocketMap.get(to);
+      if (!peerSocketId) return;
+      io.to(peerSocketId).emit("renegotiate_offer", { from, offer });
+    } catch (e) {
+      console.error("renegotiate_offer error", e);
+    }
+  });
+  socket.on("renegotiate_answer", ({ to, from, answer }) => {
+    try {
+      const peerSocketId = userSocketMap.get(to);
+      if (!peerSocketId) return;
+      io.to(peerSocketId).emit("renegotiate_answer", { from, answer });
+    } catch (e) {
+      console.error("renegotiate_answer error", e);
+    }
+  });
+
   socket.on("end_call", ({ to, from }) => {
     try {
       const peerSocketId = userSocketMap.get(to);
