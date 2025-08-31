@@ -13,6 +13,7 @@ import { Server } from "socket.io";
 import chatRoutes from "./routes/chat.routes.js";
 import notificationRouter from "./routes/notification.routes.js";
 import aiRoutes from "./routes/ai.routes.js";
+import rtcRoutes from "./routes/rtc.routes.js";
 
 import Message from "./models/Message.js";
 import jobRoutes from "./routes/job.routes.js";
@@ -67,6 +68,7 @@ app.use("/api/chat", chatRoutes);
 app.use("/api/notification", notificationRouter);
 app.use("/api/jobs", jobRoutes);
 app.use("/api/ai", aiRoutes);
+app.use("/api/rtc", rtcRoutes);
 app.use("/api/testmail", testmailRoutes);
 
 // Map to store connected users: userId -> socketId
