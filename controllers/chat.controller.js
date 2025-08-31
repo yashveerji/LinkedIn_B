@@ -23,6 +23,7 @@ export const sharePost = async (req, res) => {
 };
 // controllers/chat.controller.js
 import Message from "../models/Message.js";
+import CallLog from "../models/CallLog.js";
 
 /**
  * GET /api/chat/history/:withUser?page=1&limit=30
@@ -43,15 +44,45 @@ export const getHistory = async (req, res) => {
       ]
     };
 
-    const [items, total] = await Promise.all([
+    // Fetch messages and recent call logs within the same conversation
+    const [msgs, calls, totalMsgs, totalCalls] = await Promise.all([
       Message.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
-      Message.countDocuments(filter)
+      CallLog.find({ $or: [ { from: userId, to: withUser }, { from: withUser, to: userId } ] }).sort({ createdAt: -1 }).limit(200),
+      Message.countDocuments(filter),
+      CallLog.countDocuments({ $or: [ { from: userId, to: withUser }, { from: withUser, to: userId } ] })
     ]);
 
-    res.json({
-      page, limit, total,
-      items: items.reverse() // earliest first for UI
-    });
+    // Tag and merge
+    const taggedMsgs = msgs.map(m => ({
+      _id: m._id,
+      type: 'message',
+      from: m.from,
+      to: m.to,
+      text: m.text,
+      deliveredAt: m.deliveredAt,
+      readAt: m.readAt,
+      createdAt: m.createdAt,
+      updatedAt: m.updatedAt
+    }));
+    const taggedCalls = calls.map(c => ({
+      _id: c._id,
+      type: 'call',
+      from: c.from,
+      to: c.to,
+      callType: c.callType,
+      status: c.status,
+      startedAt: c.startedAt,
+      answeredAt: c.answeredAt,
+      endedAt: c.endedAt,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt
+    }));
+
+    const merged = [...taggedMsgs, ...taggedCalls].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    // For pagination, keep total as messages+calls (approximate). Clients can fetch more if needed.
+    const total = totalMsgs + totalCalls;
+
+    res.json({ page, limit, total, items: merged });
   } catch (err) {
     console.error("getHistory error:", err);
     res.status(500).json({ message: "Failed to fetch chat history" });

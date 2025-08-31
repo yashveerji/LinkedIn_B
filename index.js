@@ -18,6 +18,7 @@ import rtcRoutes from "./routes/rtc.routes.js";
 import Message from "./models/Message.js";
 import jobRoutes from "./routes/job.routes.js";
 import testmailRoutes from "./routes/testmail.routes.js";
+import CallLog from "./models/CallLog.js";
 
 dotenv.config();
 
@@ -161,8 +162,12 @@ io.on("connection", (socket) => {
       const receiverSocketId = userSocketMap.get(to);
       if (!receiverSocketId) {
         socket.emit("call_unavailable", { to });
+        // Log unavailable
+        CallLog.create({ from, to, callType, status: "unavailable", startedAt: new Date(), endedAt: new Date() }).catch(()=>{});
         return;
       }
+      // Create a ringing log
+      CallLog.create({ from, to, callType, status: "ringing", startedAt: new Date() }).catch(()=>{});
       io.to(receiverSocketId).emit("incoming_call", { from, offer, callType, icePrefs });
     } catch (e) {
       console.error("call_user error", e);
@@ -183,6 +188,12 @@ io.on("connection", (socket) => {
     try {
       const callerSocketId = userSocketMap.get(to);
       if (!callerSocketId) return;
+      // Update latest ringing log between these two users to answered
+      CallLog.findOneAndUpdate(
+        { from: to, to: from, status: { $in: ["ringing"] } },
+        { status: "answered", answeredAt: new Date() },
+        { sort: { createdAt: -1 } }
+      ).catch(()=>{});
       io.to(callerSocketId).emit("call_answer", { from, answer });
     } catch (e) {
       console.error("answer_call error", e);
@@ -224,6 +235,12 @@ io.on("connection", (socket) => {
       const peerSocketId = userSocketMap.get(to);
       if (peerSocketId) io.to(peerSocketId).emit("call_ended", { from });
       socket.emit("call_ended", { from });
+      // Mark latest call between the two as ended
+      CallLog.findOneAndUpdate(
+        { $or: [ { from, to }, { from: to, to: from } ], status: { $in: ["ringing", "answered"] } },
+        { status: "ended", endedAt: new Date() },
+        { sort: { createdAt: -1 } }
+      ).catch(()=>{});
     } catch (e) {
       console.error("end_call error", e);
     }
@@ -234,6 +251,12 @@ io.on("connection", (socket) => {
       const callerSocketId = userSocketMap.get(to);
       if (!callerSocketId) return;
       io.to(callerSocketId).emit("call_rejected", { from });
+      // Mark latest call as rejected (missed)
+      CallLog.findOneAndUpdate(
+        { from: to, to: from, status: { $in: ["ringing"] } },
+        { status: "rejected", endedAt: new Date() },
+        { sort: { createdAt: -1 } }
+      ).catch(()=>{});
     } catch (e) {
       console.error("reject_call error", e);
     }
