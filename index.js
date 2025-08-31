@@ -84,8 +84,39 @@ app.get(["/", "/health", "/api/health"], (req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
 });
 
-// Map to store connected users: userId -> socketId
+// Map to store connected users: userId -> Set of socketIds (supports multi-tabs)
 export const userSocketMap = new Map();
+
+function addUserSocket(userId, socketId) {
+  const set = userSocketMap.get(userId) || new Set();
+  const wasEmpty = set.size === 0;
+  set.add(socketId);
+  userSocketMap.set(userId, set);
+  return wasEmpty; // indicates transition offline->online
+}
+
+function removeUserSocket(socketId) {
+  for (let [userId, set] of userSocketMap.entries()) {
+    if (set.has(socketId)) {
+      set.delete(socketId);
+      if (set.size === 0) {
+        userSocketMap.delete(userId);
+        return { userId, nowOffline: true };
+      }
+      return { userId, nowOffline: false };
+    }
+  }
+  return null;
+}
+
+function getUserSockets(userId) {
+  return Array.from(userSocketMap.get(userId) || []);
+}
+
+function emitToUser(userId, event, payload) {
+  const sockets = getUserSockets(userId);
+  sockets.forEach((sid) => io.to(sid).emit(event, payload));
+}
 
 io.on("connection", (socket) => {
   console.log("New user connected:", socket.id, "transport=", socket.conn?.transport?.name);
@@ -95,9 +126,14 @@ io.on("connection", (socket) => {
   });
 
   socket.on("register", (userId) => {
-    userSocketMap.set(userId, socket.id);
+    const becameOnline = addUserSocket(userId, socket.id);
     console.log(`User registered: ${userId} -> ${socket.id}`);
-  io.emit("user_online", { userId });
+    if (becameOnline) io.emit("user_online", { userId });
+    // Send initial presence snapshot to this user
+    const onlineUserIds = Array.from(userSocketMap.entries())
+      .filter(([_, set]) => set.size > 0)
+      .map(([uid]) => uid);
+    socket.emit("presence_snapshot", { users: onlineUserIds });
   });
 
 
@@ -106,16 +142,16 @@ io.on("connection", (socket) => {
       // Save to DB
       let msg = await Message.create({ from: senderId, to: receiverId, text });
       // If receiver is online, mark delivered
-      const receiverSocketId = userSocketMap.get(receiverId);
-      if (receiverSocketId) {
+      const receiverSockets = getUserSockets(receiverId);
+      if (receiverSockets.length) {
         msg.deliveredAt = new Date();
         await msg.save();
-        io.to(receiverSocketId).emit("receive_message", {
+        receiverSockets.forEach((sid) => io.to(sid).emit("receive_message", {
           senderId,
           text,
           time: new Date().toLocaleTimeString(),
           messageId: msg._id,
-        });
+        }));
       }
       // Notify sender about delivery status
       socket.emit("message_status", { clientId, messageId: msg._id, delivered: Boolean(msg.deliveredAt) });
@@ -126,41 +162,44 @@ io.on("connection", (socket) => {
 
   // Typing indicator
   socket.on("typing", ({ from, to, isTyping }) => {
-    const receiverSocketId = userSocketMap.get(to);
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit("typing", { from, isTyping });
-    }
+  const sockets = getUserSockets(to);
+  sockets.forEach((sid) => io.to(sid).emit("typing", { from, isTyping }));
+  });
+
+  // Allow clients to request a presence snapshot at any time
+  socket.on("presence_request", () => {
+    try {
+      const onlineUserIds = Array.from(userSocketMap.entries())
+        .filter(([_, set]) => set.size > 0)
+        .map(([uid]) => uid);
+      socket.emit("presence_snapshot", { users: onlineUserIds });
+    } catch {}
   });
 
   // Mark messages as read
   socket.on("mark_read", async ({ from, to }) => {
     try {
       await Message.updateMany({ from, to, readAt: null }, { $set: { readAt: new Date() } });
-      const senderSocketId = userSocketMap.get(from);
-      if (senderSocketId) {
-        io.to(senderSocketId).emit("messages_read", { peerId: to });
-      }
+  const sockets = getUserSockets(from);
+  sockets.forEach((sid) => io.to(sid).emit("messages_read", { peerId: to }));
     } catch (e) {
       console.error("mark_read error", e);
     }
   });
 
   socket.on("disconnect", () => {
-  for (let [userId, sId] of userSocketMap.entries()) {
-      if (sId === socket.id) {
-        userSocketMap.delete(userId);
-        console.log(`User disconnected: ${userId}`);
-    io.emit("user_offline", { userId });
-        break;
-      }
-    }
+  const res = removeUserSocket(socket.id);
+  if (res) {
+    console.log(`Socket disconnected: ${socket.id} for user ${res.userId}`);
+    if (res.nowOffline) io.emit("user_offline", { userId: res.userId });
+  }
   });
 
   // WebRTC signaling: voice/video calls
   socket.on("call_user", ({ to, from, offer, callType, icePrefs }) => {
     try {
-      const receiverSocketId = userSocketMap.get(to);
-      if (!receiverSocketId) {
+  const receiverSockets = getUserSockets(to);
+  if (!receiverSockets.length) {
         socket.emit("call_unavailable", { to });
         // Log unavailable
         CallLog.create({ from, to, callType, status: "unavailable", startedAt: new Date(), endedAt: new Date() }).catch(()=>{});
@@ -168,7 +207,7 @@ io.on("connection", (socket) => {
       }
       // Create a ringing log
       CallLog.create({ from, to, callType, status: "ringing", startedAt: new Date() }).catch(()=>{});
-      io.to(receiverSocketId).emit("incoming_call", { from, offer, callType, icePrefs });
+  receiverSockets.forEach((sid) => io.to(sid).emit("incoming_call", { from, offer, callType, icePrefs }));
     } catch (e) {
       console.error("call_user error", e);
     }
@@ -176,9 +215,8 @@ io.on("connection", (socket) => {
   // Allow caller to set ICE preferences on callee (runtime override)
   socket.on("ice_prefs", ({ to, from, prefs }) => {
     try {
-      const peerSocketId = userSocketMap.get(to);
-      if (!peerSocketId) return;
-      io.to(peerSocketId).emit("ice_prefs", { from, prefs });
+      const sockets = getUserSockets(to);
+      sockets.forEach((sid) => io.to(sid).emit("ice_prefs", { from, prefs }));
     } catch (e) {
       console.error("ice_prefs error", e);
     }
@@ -186,15 +224,14 @@ io.on("connection", (socket) => {
 
   socket.on("answer_call", ({ to, from, answer }) => {
     try {
-      const callerSocketId = userSocketMap.get(to);
-      if (!callerSocketId) return;
+  const callerSockets = getUserSockets(to);
       // Update latest ringing log between these two users to answered
       CallLog.findOneAndUpdate(
         { from: to, to: from, status: { $in: ["ringing"] } },
         { status: "answered", answeredAt: new Date() },
         { sort: { createdAt: -1 } }
       ).catch(()=>{});
-      io.to(callerSocketId).emit("call_answer", { from, answer });
+  callerSockets.forEach((sid) => io.to(sid).emit("call_answer", { from, answer }));
     } catch (e) {
       console.error("answer_call error", e);
     }
@@ -202,9 +239,8 @@ io.on("connection", (socket) => {
 
   socket.on("ice_candidate", ({ to, from, candidate }) => {
     try {
-      const peerSocketId = userSocketMap.get(to);
-      if (!peerSocketId) return;
-      io.to(peerSocketId).emit("ice_candidate", { from, candidate });
+      const sockets = getUserSockets(to);
+      sockets.forEach((sid) => io.to(sid).emit("ice_candidate", { from, candidate }));
     } catch (e) {
       console.error("ice_candidate error", e);
     }
@@ -213,18 +249,16 @@ io.on("connection", (socket) => {
   // Support renegotiation/ICE restart
   socket.on("renegotiate_offer", ({ to, from, offer }) => {
     try {
-      const peerSocketId = userSocketMap.get(to);
-      if (!peerSocketId) return;
-      io.to(peerSocketId).emit("renegotiate_offer", { from, offer });
+      const sockets = getUserSockets(to);
+      sockets.forEach((sid) => io.to(sid).emit("renegotiate_offer", { from, offer }));
     } catch (e) {
       console.error("renegotiate_offer error", e);
     }
   });
   socket.on("renegotiate_answer", ({ to, from, answer }) => {
     try {
-      const peerSocketId = userSocketMap.get(to);
-      if (!peerSocketId) return;
-      io.to(peerSocketId).emit("renegotiate_answer", { from, answer });
+      const sockets = getUserSockets(to);
+      sockets.forEach((sid) => io.to(sid).emit("renegotiate_answer", { from, answer }));
     } catch (e) {
       console.error("renegotiate_answer error", e);
     }
@@ -232,8 +266,8 @@ io.on("connection", (socket) => {
 
   socket.on("end_call", ({ to, from }) => {
     try {
-      const peerSocketId = userSocketMap.get(to);
-      if (peerSocketId) io.to(peerSocketId).emit("call_ended", { from });
+      const sockets = getUserSockets(to);
+      sockets.forEach((sid) => io.to(sid).emit("call_ended", { from }));
       socket.emit("call_ended", { from });
       // Mark latest call between the two as ended
       CallLog.findOneAndUpdate(
@@ -248,9 +282,8 @@ io.on("connection", (socket) => {
 
   socket.on("reject_call", ({ to, from }) => {
     try {
-      const callerSocketId = userSocketMap.get(to);
-      if (!callerSocketId) return;
-      io.to(callerSocketId).emit("call_rejected", { from });
+      const sockets = getUserSockets(to);
+      sockets.forEach((sid) => io.to(sid).emit("call_rejected", { from }));
       // Mark latest call as rejected (missed)
       CallLog.findOneAndUpdate(
         { from: to, to: from, status: { $in: ["ringing"] } },
