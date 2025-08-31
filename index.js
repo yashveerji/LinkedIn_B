@@ -156,16 +156,26 @@ io.on("connection", (socket) => {
   });
 
   // WebRTC signaling: voice/video calls
-  socket.on("call_user", ({ to, from, offer, callType }) => {
+  socket.on("call_user", ({ to, from, offer, callType, icePrefs }) => {
     try {
       const receiverSocketId = userSocketMap.get(to);
       if (!receiverSocketId) {
         socket.emit("call_unavailable", { to });
         return;
       }
-      io.to(receiverSocketId).emit("incoming_call", { from, offer, callType });
+      io.to(receiverSocketId).emit("incoming_call", { from, offer, callType, icePrefs });
     } catch (e) {
       console.error("call_user error", e);
+    }
+  });
+  // Allow caller to set ICE preferences on callee (runtime override)
+  socket.on("ice_prefs", ({ to, from, prefs }) => {
+    try {
+      const peerSocketId = userSocketMap.get(to);
+      if (!peerSocketId) return;
+      io.to(peerSocketId).emit("ice_prefs", { from, prefs });
+    } catch (e) {
+      console.error("ice_prefs error", e);
     }
   });
 

@@ -51,11 +51,24 @@ function getTwilioIceServers() {
 router.get("/ice", async (req, res) => {
   try {
     const iceServers = await getTwilioIceServers();
+    // Allow public cross-origin access; no secrets in response (ephemeral creds)
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     res.json({ iceServers });
   } catch (e) {
     // Fall back to empty list; frontend should handle with STUN/env TURN
+    res.setHeader('Access-Control-Allow-Origin', '*');
     res.status(503).json({ error: e.message || "Failed to fetch ICE servers" });
   }
+});
+
+// Handle preflight if needed
+router.options('/ice', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.status(204).end();
 });
 
 export default router;
