@@ -5,8 +5,16 @@ const messageSchema = new mongoose.Schema(
   {
     from: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     to:   { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  text: { type: String, required: true, trim: true },
-  post: { type: mongoose.Schema.Types.ObjectId, ref: "Post", default: null },
+    text: { type: String, trim: true, default: "" },
+    post: { type: mongoose.Schema.Types.ObjectId, ref: "Post", default: null },
+    // Attachment fields
+    attachmentUrl: { type: String, default: "" },
+    attachmentType: { type: String, enum: ["image", "file", ""], default: "" },
+    attachmentName: { type: String, default: "" },
+    attachmentMime: { type: String, default: "" },
+    attachmentSize: { type: Number, default: 0 },
+    attachmentWidth: { type: Number, default: 0 },
+    attachmentHeight: { type: Number, default: 0 },
     deliveredAt: { type: Date, default: null },
     readAt:      { type: Date, default: null }
   },

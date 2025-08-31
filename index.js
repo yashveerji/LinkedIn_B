@@ -14,6 +14,7 @@ import chatRoutes from "./routes/chat.routes.js";
 import notificationRouter from "./routes/notification.routes.js";
 import aiRoutes from "./routes/ai.routes.js";
 import rtcRoutes from "./routes/rtc.routes.js";
+import uploadRoutes from "./routes/upload.routes.js";
 
 import Message from "./models/Message.js";
 import jobRoutes from "./routes/job.routes.js";
@@ -78,6 +79,7 @@ app.use("/api/jobs", jobRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/rtc", rtcRoutes);
 app.use("/api/testmail", testmailRoutes);
+app.use("/api/upload", uploadRoutes);
 
 // Simple health check
 app.get(["/", "/health", "/api/health"], (req, res) => {
@@ -137,21 +139,43 @@ io.on("connection", (socket) => {
   });
 
 
-  socket.on("send_message", async ({ senderId, receiverId, text, clientId }) => {
+  socket.on("send_message", async ({ senderId, receiverId, text, clientId, attachment }) => {
     try {
       // Save to DB
-      let msg = await Message.create({ from: senderId, to: receiverId, text });
+      const payload = { from: senderId, to: receiverId, text };
+      if (attachment && attachment.url) {
+        payload.attachmentUrl = attachment.url;
+        payload.attachmentType = attachment.type || "file";
+        payload.attachmentName = attachment.name || "";
+        payload.attachmentMime = attachment.mime || "";
+        payload.attachmentSize = attachment.size || 0;
+        payload.attachmentWidth = attachment.width || 0;
+        payload.attachmentHeight = attachment.height || 0;
+      }
+      let msg = await Message.create(payload);
       // If receiver is online, mark delivered
       const receiverSockets = getUserSockets(receiverId);
       if (receiverSockets.length) {
         msg.deliveredAt = new Date();
         await msg.save();
-        receiverSockets.forEach((sid) => io.to(sid).emit("receive_message", {
+        const emitData = {
           senderId,
           text,
           time: new Date().toLocaleTimeString(),
           messageId: msg._id,
-        }));
+        };
+        if (msg.attachmentUrl) {
+          emitData.attachment = {
+            url: msg.attachmentUrl,
+            type: msg.attachmentType,
+            name: msg.attachmentName,
+            mime: msg.attachmentMime,
+            size: msg.attachmentSize,
+            width: msg.attachmentWidth,
+            height: msg.attachmentHeight,
+          };
+        }
+        receiverSockets.forEach((sid) => io.to(sid).emit("receive_message", emitData));
       }
       // Notify sender about delivery status
       socket.emit("message_status", { clientId, messageId: msg._id, delivered: Boolean(msg.deliveredAt) });
