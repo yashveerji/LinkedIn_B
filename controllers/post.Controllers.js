@@ -259,3 +259,53 @@ export const getSavedPosts = async (req, res) => {
         return res.status(500).json({ message: `get saved posts error ${error}` });
     }
 };
+
+// Paginated post search by description/quote or author name/headline/username
+export const searchPosts = async (req, res) => {
+    try {
+        const q = (req.query.q || req.query.query || "").toString().trim();
+        if (!q) return res.status(400).json({ message: "Query is required" });
+
+        const page = Math.max(parseInt(req.query.page || "1", 10), 1);
+        const limit = Math.min(Math.max(parseInt(req.query.limit || "10", 10), 1), 50);
+        const skip = (page - 1) * limit;
+
+        const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), "i");
+        // Find authors matching the query to include their posts
+        const authors = await User.find({
+            $or: [
+                { firstName: { $regex: regex } },
+                { lastName: { $regex: regex } },
+                { userName: { $regex: regex } },
+                { headline: { $regex: regex } },
+            ]
+        }).select("_id");
+        const authorIds = authors.map(a => a._id);
+
+        const filter = {
+            $or: [
+                { description: { $regex: regex } },
+                { quote: { $regex: regex } },
+                ...(authorIds.length ? [{ author: { $in: authorIds } }] : [])
+            ]
+        };
+
+        const [items, total] = await Promise.all([
+            Post.find(filter)
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit)
+                .populate("author", "firstName lastName profileImage headline userName")
+                .populate("repostedFrom", "firstName lastName profileImage headline userName")
+                .populate("comment.user", "firstName lastName profileImage headline")
+                .populate("reactions.user", "firstName lastName profileImage userName"),
+            Post.countDocuments(filter)
+        ]);
+
+        const hasMore = page * limit < total;
+        return res.status(200).json({ page, limit, total, hasMore, items });
+    } catch (error) {
+        console.error("searchPosts error", error);
+        return res.status(500).json({ message: "post search error" });
+    }
+};
