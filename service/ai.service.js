@@ -1,8 +1,15 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_KEY);
-const model = genAI.getGenerativeModel({
-    model: "gemini-2.0-flash",
+// Allow overriding via env; otherwise try candidates in order
+const CANDIDATE_MODELS = [
+    process.env.GEMINI_MODEL || "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+];
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_KEY || "");
+let SELECTED_MODEL = CANDIDATE_MODELS[0];
+let model = genAI.getGenerativeModel({
+    model: SELECTED_MODEL,
     systemInstruction: `
         Role of AI: You are a friendly, knowledgeable, and interactive assistant for the Global Connect platform. Your goal is to guide users, answer questions, and help them navigate the website and its features efficiently.
 
@@ -34,14 +41,45 @@ Default Greeting Example:
     `
 });
 
+function withTimeout(promise, ms = 20000) {
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error("AI_TIMEOUT")), ms)),
+    ]);
+}
+
+export function isAiConfigured() {
+    return Boolean(process.env.GOOGLE_GEMINI_KEY);
+}
+
+export function aiStatus() {
+    return {
+        configured: isAiConfigured(),
+    model: SELECTED_MODEL,
+    };
+}
+
 // Backward-compatible single-turn generation
-export default async function generateContent(prompt) {
-    const result = await model.generateContent(prompt);
-    return result.response.text();
+export default async function generateContent(prompt, { timeoutMs = 20000 } = {}) {
+    try {
+        const result = await withTimeout(model.generateContent(prompt), timeoutMs);
+        return result.response.text();
+    } catch (e) {
+        // Try fallbacks if initial model fails (e.g., invalid model name)
+        for (let i = 1; i < CANDIDATE_MODELS.length; i++) {
+            try {
+                SELECTED_MODEL = CANDIDATE_MODELS[i];
+                model = genAI.getGenerativeModel({ model: SELECTED_MODEL });
+                const result = await withTimeout(model.generateContent(prompt), timeoutMs);
+                return result.response.text();
+            } catch {}
+        }
+        throw e;
+    }
 }
 
 // Multi-turn chat with history (stateless: history is provided by caller)
-export async function generateChatReply(messages = []) {
+export async function generateChatReply(messages = [], { timeoutMs = 20000 } = {}) {
     try {
         // Expect messages as array of { from: 'user'|'ai', text: string }
         const list = Array.isArray(messages) ? messages.filter(m => m && m.text) : [];
@@ -52,8 +90,25 @@ export async function generateChatReply(messages = []) {
             parts: [{ text: String(m.text || '') }],
         }));
         const chat = model.startChat({ history });
-        const result = await chat.sendMessage(String(last.text || ''));
-        return result.response.text();
+        const send = async () => {
+            const result = await withTimeout(chat.sendMessage(String(last.text || '')), timeoutMs);
+            return result.response.text();
+        };
+        try {
+            return await send();
+        } catch (e) {
+            // Retry with fallback models
+            for (let i = 1; i < CANDIDATE_MODELS.length; i++) {
+                try {
+                    SELECTED_MODEL = CANDIDATE_MODELS[i];
+                    const alt = genAI.getGenerativeModel({ model: SELECTED_MODEL });
+                    const altChat = alt.startChat({ history });
+                    const result = await withTimeout(altChat.sendMessage(String(last.text || '')), timeoutMs);
+                    return result.response.text();
+                } catch {}
+            }
+            throw e;
+        }
     } catch (e) {
         return 'Sorry, I could not process that right now.';
     }
