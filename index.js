@@ -9,6 +9,7 @@ import postRouter from "./routes/post.routes.js";
 import connectionRouter from "./routes/connection.routes.js";
 import http from "http";
 import { Server } from "socket.io";
+import User from "./models/user.model.js";
 
 import chatRoutes from "./routes/chat.routes.js";
 import notificationRouter from "./routes/notification.routes.js";
@@ -216,6 +217,10 @@ io.on("connection", (socket) => {
   if (res) {
     console.log(`Socket disconnected: ${socket.id} for user ${res.userId}`);
     if (res.nowOffline) io.emit("user_offline", { userId: res.userId });
+    if (res.nowOffline) {
+      // Update lastSeen for the user who just went offline
+      User.findByIdAndUpdate(res.userId, { $set: { lastSeen: new Date() } }).catch(() => {});
+    }
   }
   });
 

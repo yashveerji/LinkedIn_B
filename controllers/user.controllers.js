@@ -148,3 +148,17 @@ export const getSuggestedUser = async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 };
+
+// Get last seen for a user by id
+export const getLastSeen = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ message: "User id required" });
+    const user = await User.findById(id).select("lastSeen");
+    if (!user) return res.status(404).json({ message: "User not found" });
+    return res.status(200).json({ lastSeen: user.lastSeen || null });
+  } catch (error) {
+    console.error("getLastSeen error:", error);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
