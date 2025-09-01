@@ -6,7 +6,8 @@ const CANDIDATE_MODELS = [
     "gemini-1.5-flash",
     "gemini-1.5-pro",
 ];
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_KEY || "");
+const API_KEY = (process.env.GOOGLE_GEMINI_KEY || "").trim();
+const genAI = new GoogleGenerativeAI(API_KEY);
 let SELECTED_MODEL = CANDIDATE_MODELS[0];
 let model = genAI.getGenerativeModel({
     model: SELECTED_MODEL,
@@ -49,19 +50,24 @@ function withTimeout(promise, ms = 20000) {
 }
 
 export function isAiConfigured() {
-    return Boolean(process.env.GOOGLE_GEMINI_KEY);
+    return Boolean(API_KEY);
 }
 
 export function aiStatus() {
+    const configured = isAiConfigured();
     return {
-        configured: isAiConfigured(),
-    model: SELECTED_MODEL,
+        configured,
+        model: configured ? SELECTED_MODEL : null,
+        reason: configured ? undefined : "Missing GOOGLE_GEMINI_KEY",
     };
 }
 
 // Backward-compatible single-turn generation
 export default async function generateContent(prompt, { timeoutMs = 20000 } = {}) {
     try {
+        if (!isAiConfigured()) {
+            return 'AI is not configured on the server.';
+        }
         const result = await withTimeout(model.generateContent(prompt), timeoutMs);
         return result.response.text();
     } catch (e) {
@@ -81,6 +87,9 @@ export default async function generateContent(prompt, { timeoutMs = 20000 } = {}
 // Multi-turn chat with history (stateless: history is provided by caller)
 export async function generateChatReply(messages = [], { timeoutMs = 20000 } = {}) {
     try {
+        if (!isAiConfigured()) {
+            return 'AI is not configured on the server.';
+        }
         // Expect messages as array of { from: 'user'|'ai', text: string }
         const list = Array.isArray(messages) ? messages.filter(m => m && m.text) : [];
         if (!list.length) throw new Error('No messages');

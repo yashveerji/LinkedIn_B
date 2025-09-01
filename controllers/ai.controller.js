@@ -1,8 +1,11 @@
 
-import aiService, { generateChatReply, aiStatus } from "../service/ai.service.js";
+import aiService, { generateChatReply, aiStatus, isAiConfigured } from "../service/ai.service.js";
 
 export const getRes = async (req, res) => {
   try {
+    if (!isAiConfigured()) {
+      return res.status(503).json({ error: "AI not configured" });
+    }
     const code = req.body.code;
     if (!code) {
       return res.status(400).json({ error: "Prompt is required" });
@@ -17,6 +20,9 @@ export const getRes = async (req, res) => {
 
 export const chatRes = async (req, res) => {
   try {
+    if (!isAiConfigured()) {
+      return res.status(503).json({ error: "AI not configured" });
+    }
     const messages = req.body?.messages || [];
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'messages array required' });
@@ -30,5 +36,6 @@ export const chatRes = async (req, res) => {
 };
 
 export const aiHealth = (req, res) => {
-  return res.json({ ok: true, ...aiStatus() });
+  const status = aiStatus();
+  return res.json({ ok: true, ...status });
 };
