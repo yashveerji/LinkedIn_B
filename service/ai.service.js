@@ -1,17 +1,20 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import dotenv from "dotenv";
 
-// Allow overriding via env; otherwise try candidates in order
-const CANDIDATE_MODELS = [
+// Ensure env is loaded even if this module is evaluated before index.js (ESM import order)
+dotenv.config();
+
+// Allow overriding via env; otherwise try candidates in order (include widely available versions)
+let CANDIDATE_MODELS = [
     process.env.GEMINI_MODEL || "gemini-2.0-flash",
     "gemini-1.5-flash",
     "gemini-1.5-pro",
+    "gemini-1.5-flash-002",
+    "gemini-1.5-pro-002",
 ];
-const API_KEY = (process.env.GOOGLE_GEMINI_KEY || "").trim();
-const genAI = new GoogleGenerativeAI(API_KEY);
-let SELECTED_MODEL = CANDIDATE_MODELS[0];
-let model = genAI.getGenerativeModel({
-    model: SELECTED_MODEL,
-    systemInstruction: `
+
+// System prompt for the assistant
+const SYSTEM_INSTRUCTION = `
         Role of AI: You are a friendly, knowledgeable, and interactive assistant for the Global Connect platform. Your goal is to guide users, answer questions, and help them navigate the website and its features efficiently.
 
 Primary Responsibilities:
@@ -39,8 +42,51 @@ Provide sensitive information or instructions outside the platform scope.
 Default Greeting Example:
 
 “Hi there! I’m your Global Connect guide. I can help you navigate the website, find jobs, connect with professionals, and make the most out of your experience here. What would you like to do today?”
-    `
-});
+    `;
+
+// Lazy state; recreated if key/model changes
+let SELECTED_MODEL = CANDIDATE_MODELS[0];
+let _genAI = null;
+let _model = null;
+
+async function ensureFetch() {
+    if (typeof fetch === 'undefined') {
+        try {
+            const undici = await import('undici');
+            // @ts-ignore
+            globalThis.fetch = undici.fetch;
+            // @ts-ignore
+            globalThis.Headers = undici.Headers;
+            // @ts-ignore
+            globalThis.Request = undici.Request;
+            // @ts-ignore
+            globalThis.Response = undici.Response;
+        } catch (e) {
+            console.error('[AI] Failed to polyfill fetch:', e?.message || e);
+        }
+    }
+}
+
+function getApiKey() {
+    let key = process.env.GOOGLE_GEMINI_KEY || "";
+    key = String(key).trim();
+    // Strip wrapping single/double quotes if present
+    if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
+        key = key.slice(1, -1).trim();
+    }
+    return key;
+}
+
+function ensureClient(modelName = SELECTED_MODEL) {
+    const key = getApiKey();
+    if (!key) return { ok: false, reason: "Missing GOOGLE_GEMINI_KEY" };
+    if (!_genAI) _genAI = new GoogleGenerativeAI(key);
+    if (!_model || SELECTED_MODEL !== modelName) {
+        SELECTED_MODEL = modelName;
+        _model = _genAI.getGenerativeModel({ model: SELECTED_MODEL, systemInstruction: SYSTEM_INSTRUCTION });
+    }
+    return { ok: true };
+}
 
 function withTimeout(promise, ms = 20000) {
     return Promise.race([
@@ -50,7 +96,7 @@ function withTimeout(promise, ms = 20000) {
 }
 
 export function isAiConfigured() {
-    return Boolean(API_KEY);
+    return Boolean(getApiKey());
 }
 
 export function aiStatus() {
@@ -68,19 +114,29 @@ export default async function generateContent(prompt, { timeoutMs = 20000 } = {}
         if (!isAiConfigured()) {
             return 'AI is not configured on the server.';
         }
-        const result = await withTimeout(model.generateContent(prompt), timeoutMs);
-        return result.response.text();
-    } catch (e) {
-        // Try fallbacks if initial model fails (e.g., invalid model name)
-        for (let i = 1; i < CANDIDATE_MODELS.length; i++) {
-            try {
-                SELECTED_MODEL = CANDIDATE_MODELS[i];
-                model = genAI.getGenerativeModel({ model: SELECTED_MODEL });
-                const result = await withTimeout(model.generateContent(prompt), timeoutMs);
-                return result.response.text();
-            } catch {}
+        // Ensure client/model; if the preferred model fails, fallback below
+    await ensureFetch();
+    let ok = ensureClient(SELECTED_MODEL);
+        if (!ok.ok) return 'AI is not configured on the server.';
+        try {
+            const result = await withTimeout(_model.generateContent(prompt), timeoutMs);
+            return result.response.text();
+        } catch (err) {
+            // Try fallbacks if initial model fails (e.g., invalid model name)
+            for (let i = 0; i < CANDIDATE_MODELS.length; i++) {
+                const name = CANDIDATE_MODELS[i];
+                try {
+            ensureClient(name);
+                    const result = await withTimeout(_model.generateContent(prompt), timeoutMs);
+                    return result.response.text();
+                } catch {}
+            }
+        console.error('[AI] generateContent failed for all models', err?.message || err);
+        throw err;
         }
-        throw e;
+    } catch (e) {
+    console.error('[AI] generateContent error:', e?.message || e);
+        return 'Sorry, I could not process that right now.';
     }
 }
 
@@ -98,27 +154,31 @@ export async function generateChatReply(messages = [], { timeoutMs = 20000 } = {
             role: m.from === 'ai' ? 'model' : 'user',
             parts: [{ text: String(m.text || '') }],
         }));
-        const chat = model.startChat({ history });
-        const send = async () => {
-            const result = await withTimeout(chat.sendMessage(String(last.text || '')), timeoutMs);
-            return result.response.text();
-        };
-        try {
-            return await send();
-        } catch (e) {
-            // Retry with fallback models
-            for (let i = 1; i < CANDIDATE_MODELS.length; i++) {
-                try {
-                    SELECTED_MODEL = CANDIDATE_MODELS[i];
-                    const alt = genAI.getGenerativeModel({ model: SELECTED_MODEL });
-                    const altChat = alt.startChat({ history });
-                    const result = await withTimeout(altChat.sendMessage(String(last.text || '')), timeoutMs);
-                    return result.response.text();
-                } catch {}
-            }
-            throw e;
+
+        // Try current + fallbacks with chat API
+        for (let i = -1; i < CANDIDATE_MODELS.length; i++) {
+            const name = i < 0 ? SELECTED_MODEL : CANDIDATE_MODELS[i];
+            try {
+        await ensureFetch();
+        const ok = ensureClient(name);
+                if (!ok.ok) break;
+                const chat = _model.startChat({ history });
+                const result = await withTimeout(chat.sendMessage(String(last.text || '')), timeoutMs);
+                return result.response.text();
+            } catch {}
         }
+        // Fallback: attempt single-turn generation without history
+        for (let i = 0; i < CANDIDATE_MODELS.length; i++) {
+            try {
+                const ok = ensureClient(CANDIDATE_MODELS[i]);
+                if (!ok.ok) break;
+                const result = await withTimeout(_model.generateContent(String(last.text || '')), timeoutMs);
+                return result.response.text();
+            } catch {}
+        }
+        throw new Error('all_models_failed');
     } catch (e) {
+    console.error('[AI] generateChatReply error:', e?.message || e);
         return 'Sorry, I could not process that right now.';
     }
 }
