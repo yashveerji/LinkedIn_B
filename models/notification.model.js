@@ -21,6 +21,10 @@ const notificationSchema=new mongoose.Schema({
     relatedPost:{
         type:mongoose.Schema.Types.ObjectId,
         ref:"Post"
+    },
+    read: {
+        type: Boolean,
+        default: false
     }
 
 

@@ -34,3 +34,22 @@ export const clearAllNotification=async (req,res)=>{
         return res.status(500).json({message:`delete all notification error ${error}`})
     }
 }
+
+export const markRead = async (req, res) => {
+    try {
+        const { id } = req.params;
+        await Notification.findOneAndUpdate({ _id: id, receiver: req.userId }, { $set: { read: true } });
+        return res.status(200).json({ message: 'marked read' });
+    } catch (error) {
+        return res.status(500).json({ message: `mark read error ${error}` });
+    }
+}
+
+export const markAllRead = async (req, res) => {
+    try {
+        await Notification.updateMany({ receiver: req.userId, read: { $ne: true } }, { $set: { read: true } });
+        return res.status(200).json({ message: 'all marked read' });
+    } catch (error) {
+        return res.status(500).json({ message: `mark all read error ${error}` });
+    }
+}
