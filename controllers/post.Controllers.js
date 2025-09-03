@@ -9,7 +9,8 @@ export const createPost = async (req, res) => {
         const { description } = req.body;
         let newPost;
         if (req.file) {
-            const image = await uploadOnCloudinary(req.file.path);
+            // With memoryStorage, use buffer upload; helper supports both
+            const image = await uploadOnCloudinary(req.file);
             newPost = await Post.create({ author: req.userId, description, image });
         } else {
             newPost = await Post.create({ author: req.userId, description });

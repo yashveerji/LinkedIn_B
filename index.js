@@ -68,6 +68,14 @@ app.use((req, res, next) => {
   next();
 });
 
+// Optionally serve any static assets placed in ./public (useful in dev). In prod we primarily use Cloudinary.
+try {
+  import('path').then(({ default: path }) => {
+    const publicDir = path.resolve(process.cwd(), 'public');
+    app.use('/public', express.static(publicDir));
+  }).catch(() => {});
+} catch {}
+
 // API routes
 app.use("/api/auth", authRouter);
 app.use("/api/user", userRouter);
